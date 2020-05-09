@@ -38,8 +38,10 @@ class SchemaValidationTest extends FunSpec{
       val df = Seq((1, "Adam"), (2, "Eve")).toDF("emp_id", "emp_name")
       writeData(df)
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+        = SchemaValidation.validate(dataPath)
 
+      assert(result)
       assert(colCountMatch)
       assert(missingFields.isEmpty)
       assert(extraFields.isEmpty)
@@ -51,8 +53,10 @@ class SchemaValidationTest extends FunSpec{
       val df = Seq((1), (2)).toDF("emp_id")
       writeData(df)
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+        = SchemaValidation.validate(dataPath)
 
+      assert(!result)
       assert(!colCountMatch)
       assert(missingFields.sameElements(Array(("emp_name", StringType))))
       assert(extraFields.isEmpty)
@@ -65,8 +69,10 @@ class SchemaValidationTest extends FunSpec{
       val df = Seq((1, "Adam", 10), (2, "Eve", 12)).toDF("emp_id", "emp_name", "emp_age")
       writeData(df)
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+        = SchemaValidation.validate(dataPath)
 
+      assert(!result)
       assert(!colCountMatch)
       assert(missingFields.isEmpty)
       assert(extraFields.sameElements(Array(("emp_age", IntegerType))))
@@ -79,8 +85,10 @@ class SchemaValidationTest extends FunSpec{
       val df = Seq((1, "Adam"), (2, "Eve")).toDF("emp_id", "emp_name_1")
       writeData(df)
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+      = SchemaValidation.validate(dataPath)
 
+      assert(!result)
       assert(colCountMatch)
       assert(missingFields.sameElements(Array(("emp_name", StringType))))
       assert(extraFields.sameElements(Array(("emp_name_1", StringType))))
@@ -93,8 +101,10 @@ class SchemaValidationTest extends FunSpec{
       val df = Seq((1.0, "Adam"), (2.1, "Eve")).toDF("emp_id", "emp_name")
       writeData(df)
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+      = SchemaValidation.validate(dataPath)
 
+      assert(!result)
       assert(colCountMatch)
       assert(missingFields.sameElements(Array(("emp_id", IntegerType))))
       assert(extraFields.sameElements(Array(("emp_id", DoubleType))))
@@ -107,8 +117,10 @@ class SchemaValidationTest extends FunSpec{
       val df = Seq((1, "Adam"), (2, null)).toDF("emp_id", "emp_name")
       writeData(df)
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+      = SchemaValidation.validate(dataPath)
 
+      assert(result)
       assert(colCountMatch)
       assert(missingFields.isEmpty)
       assert(extraFields.isEmpty)
@@ -120,8 +132,10 @@ class SchemaValidationTest extends FunSpec{
       val df = Seq[(Integer, String)]((null, "Adam"), (2, null)).toDF("emp_id", "emp_name")
       writeData(df)
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+      = SchemaValidation.validate(dataPath)
 
+      assert(!result)
       assert(colCountMatch)
       assert(missingFields.isEmpty)
       assert(extraFields.isEmpty)
@@ -143,8 +157,10 @@ class SchemaValidationTest extends FunSpec{
       val df1 = Seq(("Caty"), ("Dan")).toDF("emp_name")
       writeData(df1, "append")
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+      = SchemaValidation.validate(dataPath)
 
+      assert(!result)
       assert(colCountMatch)
       assert(missingFields.isEmpty)
       assert(extraFields.isEmpty)
@@ -169,8 +185,10 @@ class SchemaValidationTest extends FunSpec{
       val df1 = Seq((3), (4)).toDF("emp_id")
       writeData(df1, "append")
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+      = SchemaValidation.validate(dataPath)
 
+      assert(result)
       assert(colCountMatch)
       assert(missingFields.isEmpty)
       assert(extraFields.isEmpty)
@@ -185,12 +203,42 @@ class SchemaValidationTest extends FunSpec{
         .toDF("emp_id", "emp_name", "emp_age")
       writeData(expectedBadRecords, "append")
 
-      val (colCountMatch, missingFields, extraFields, actualBadRecords) = SchemaValidation.validate(dataPath)
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+      = SchemaValidation.validate(dataPath)
 
+      assert(!result)
       assert(!colCountMatch)
       assert(missingFields.isEmpty)
       assert(extraFields sameElements Array(("emp_age", IntegerType)))
 
+      assert(schemaMatch(actualBadRecords, expectedBadRecords))
+      assert(dataMatch(actualBadRecords, expectedBadRecords))
+    }
+
+    it("should get bad records for extra fields and null values for NON_NULLABLE fields"){
+      import spark.implicits._
+      val df = Seq((1, "Adam"), (2, "Bob")).toDF("emp_id", "emp_name")
+      writeData(df)
+
+      val df1 = Seq((3, "Caty", 10), (4, "Dan", 12))
+        .toDF("emp_id", "emp_name", "emp_age")
+      writeData(df1, "append")
+
+      val df2 = Seq[(Integer, String)]((null, "Eve"), (6, null))
+        .toDF("emp_id", "emp_name")
+      writeData(df2, "append")
+
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+      = SchemaValidation.validate(dataPath)
+
+      assert(!result)
+      assert(!colCountMatch)
+      assert(missingFields.isEmpty)
+      assert(extraFields sameElements Array(("emp_age", IntegerType)))
+
+      val expectedBadRecords = Seq[(Integer, String, Integer)](
+        (3, "Caty", 10), (4, "Dan", 12), (null, "Eve", null))
+        .toDF("emp_id", "emp_name", "emp_age")
       assert(schemaMatch(actualBadRecords, expectedBadRecords))
       assert(dataMatch(actualBadRecords, expectedBadRecords))
     }

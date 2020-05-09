@@ -1,3 +1,6 @@
+import java.io.File
+
+import org.apache.commons.io.FileUtils
 import org.apache.spark.sql
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types.{DataType, IntegerType, StringType, StructField, StructType}
@@ -11,6 +14,8 @@ object SchemaValidation {
       )
     )
 
+  val badRecordsPath = "src/test/resources/badRecords"
+
   val spark = SparkSession
     .builder
     .master("local[*]")
@@ -18,8 +23,9 @@ object SchemaValidation {
     .getOrCreate()
 
   def validate(dataPath: String):
-  (Boolean, Array[(String, DataType)], Array[(String, DataType)],sql.DataFrame) = {
+  (Boolean, Boolean, Array[(String, DataType)], Array[(String, DataType)],sql.DataFrame) = {
     var result = true
+    FileUtils.deleteDirectory(new File(badRecordsPath))
     val dataDF = spark.read.option("mergeSchema", "true").load(dataPath)
     val dataSchema = dataDF.schema
 
@@ -28,20 +34,24 @@ object SchemaValidation {
 
     if(missingCols.length > 0){
       result = false
-      return (columnCountMatch, missingCols, extraCols, dataDF)
+      return (result, columnCountMatch, missingCols, extraCols, dataDF)
     }
 
     if(extraCols.length > 0){
       result = false
       val extraColName = extraCols(0)._1
       val extraFieldBadRecords = dataDF.filter(dataDF.col(extraColName).isNotNull).toDF()
-      return (columnCountMatch, missingCols, extraCols, extraFieldBadRecords)
+      extraFieldBadRecords.show()
+      writeBadRecords(extraFieldBadRecords)
     }
 
     // column count match here
     val nullViolatingRecords = dataDF.filter(dataDF.col("emp_id").isNull).toDF()
-    result = nullViolatingRecords.count() == 0
-    (columnCountMatch, missingCols, extraCols, nullViolatingRecords)
+    nullViolatingRecords.show()
+    writeBadRecords(nullViolatingRecords)
+    result = result && nullViolatingRecords.count() == 0
+    val badRecords = spark.read.option("mergeSchema", "true").load(badRecordsPath)
+    (result, columnCountMatch, missingCols, extraCols, badRecords)
   }
 
   private def getMissingAndExtraColumnsFromData(dataSchema: StructType) = {
@@ -51,5 +61,12 @@ object SchemaValidation {
     val missingCols = givenSchemaWithoutNulls.diff(dataSchemaWithoutNulls)
     val extraCols = dataSchemaWithoutNulls.diff(givenSchemaWithoutNulls)
     (missingCols, extraCols)
+  }
+
+  private def writeBadRecords(df: sql.DataFrame): Unit ={
+    df
+      .write.format("parquet")
+      .mode("append")
+      .save(badRecordsPath)
   }
 }
