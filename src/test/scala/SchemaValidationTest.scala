@@ -24,30 +24,30 @@ class SchemaValidationTest extends FunSuite{
     assert(SchemaValidation.validate(dataPath) == (true, Set(), Set()))
   }
 
-  test("should return false and extra columns when extra columns"){
-    import spark.implicits._
-    val df = Seq((1, "Adam", 10), (2, "Eve", 12)).toDF("emp_id", "emp_name", "emp_age")
-    writeData(df)
-    assert(SchemaValidation.validate(dataPath) ==
-      (false, Set(StructField("emp_age",IntegerType,true)), Set()))
-  }
-
   test("should return false and missing columns when missing columns"){
     import spark.implicits._
     val df = Seq((1), (2)).toDF("emp_id")
     writeData(df)
     assert(SchemaValidation.validate(dataPath) ==
-      (false, Set(), Set(StructField("emp_name",StringType,true))))
+      (false, Set(StructField("emp_name",StringType,true)), Set()))
   }
 
-  test("should return true and extra and missing columns when column emp_name mismatch"){
+  test("should return false and extra columns when extra columns"){
+    import spark.implicits._
+    val df = Seq((1, "Adam", 10), (2, "Eve", 12)).toDF("emp_id", "emp_name", "emp_age")
+    writeData(df)
+    assert(SchemaValidation.validate(dataPath) ==
+      (false, Set(), Set(StructField("emp_age",IntegerType,true))))
+  }
+
+  test("should return true and missing, extra columns when column emp_name mismatch"){
     import spark.implicits._
     val df = Seq((1, "Adam"), (2, "Eve")).toDF("emp_id", "emp_name_1")
     writeData(df)
     assert(SchemaValidation.validate(dataPath) ==
       (true,
-        Set(StructField("emp_name_1",StringType,true)),
-        Set(StructField("emp_name",StringType,true))))
+        Set(StructField("emp_name",StringType,true)),
+        Set(StructField("emp_name_1",StringType,true))))
   }
 
   test("should return true and mismatch types when column type mismatch"){
@@ -56,12 +56,28 @@ class SchemaValidationTest extends FunSuite{
     writeData(df)
     assert(SchemaValidation.validate(dataPath) ==
       (true,
-        Set(StructField("emp_id",DoubleType,true)),
-        Set(StructField("emp_id",IntegerType,true))))
+        Set(StructField("emp_id",IntegerType,true)),
+        Set(StructField("emp_id",DoubleType,true))))
   }
 
+  test("should return true and no mismatch when null criteria match"){
+    import spark.implicits._
+    val df = Seq((1, "Adam"), (2, null)).toDF("emp_id", "emp_name")
+    writeData(df)
+    assert(SchemaValidation.validate(dataPath) ==  (true, Set(), Set()))
+  }
 
+  test("should return true and bad records when null criteria mismatch"){
+    import spark.implicits._
+    val df = Seq[(Integer, String)]((null, "Adam"), (2, "Eve")).toDF("emp_id", "emp_name")
+    writeData(df)
 
+    assert(SchemaValidation.validate(dataPath) ==  (true, Set(), Set()))
 
+    val expectedBadRecordsDF = Seq[(Integer, String)]((null, "Adam")).toDF("emp_id", "emp_name")
+    val actualBadRecords = SchemaValidation.getBadRecords(dataPath)
+    assert(actualBadRecords.schema.fields sameElements(expectedBadRecordsDF.schema.fields))
+    assert(actualBadRecords.collect() sameElements(expectedBadRecordsDF.collect()))
+  }
 
 }
