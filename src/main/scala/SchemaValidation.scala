@@ -47,8 +47,8 @@ object SchemaValidation {
 
     // column count match here
     val nullViolatingRecords = dataDF.filter(dataDF.col("emp_id").isNull).toDF()
-    nullViolatingRecords.show()
     writeBadRecords(nullViolatingRecords)
+
     result = result && nullViolatingRecords.count() == 0
     val badRecords = spark.read.option("mergeSchema", "true").load(badRecordsPath)
     (result, columnCountMatch, missingCols, extraCols, badRecords)

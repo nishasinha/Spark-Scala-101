@@ -1,3 +1,4 @@
+import org.apache.spark.SparkException
 import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType, StructField}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.scalatest.FunSpec
@@ -241,6 +242,21 @@ class SchemaValidationTest extends FunSpec{
         .toDF("emp_id", "emp_name", "emp_age")
       assert(schemaMatch(actualBadRecords, expectedBadRecords))
       assert(dataMatch(actualBadRecords, expectedBadRecords))
+    }
+
+    it("should throw exception when incompatible schema merge"){
+      import spark.implicits._
+      val df = Seq((1, "Adam"), (2, "Bob")).toDF("emp_id", "emp_name")
+      writeData(df)
+
+      val df1 = Seq((3, "Caty", 10), (4, "Dan", 12))
+        .toDF("emp_id", "emp_name", "emp_age")
+      writeData(df1, "append")
+
+      val df2 = Seq((5.1, "Adam"), (6.2, "Bob")).toDF("emp_id", "emp_name")
+      writeData(df2, "append")
+
+      assertThrows[SparkException](SchemaValidation.validate(dataPath))
     }
   }
 }
