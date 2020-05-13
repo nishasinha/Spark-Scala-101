@@ -1,9 +1,12 @@
-import org.apache.spark.SparkException
-import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType, StructField}
-import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.scalatest.FunSpec
+import java.io.File
 
-class SchemaValidationTest extends FunSpec{
+import org.apache.commons.io.FileUtils
+import org.apache.spark.SparkException
+import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType}
+import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.scalatest.{BeforeAndAfterAll, FunSpec}
+
+class SchemaValidationTest extends FunSpec with BeforeAndAfterAll{
   lazy val spark = SparkSession
     .builder
     .master("local[*]")
@@ -11,11 +14,16 @@ class SchemaValidationTest extends FunSpec{
     .getOrCreate()
   spark.sparkContext.setLogLevel("ERROR")
 
-  val dataPath = "src/resources/data"
+  val dataPath = "src/test/resources/data"
   private def writeData(df: DataFrame, mode:String = "overwrite"): Unit ={
     df.write.format("parquet")
       .mode(mode)
       .save(dataPath)
+  }
+
+  override def afterAll(): Unit = {
+    FileUtils.deleteDirectory(new File(dataPath))
+    FileUtils.deleteDirectory(new File(SchemaValidation.badRecordsPath))
   }
 
   private def schemaMatch(df1:DataFrame, df2:DataFrame): Boolean ={
@@ -79,6 +87,29 @@ class SchemaValidationTest extends FunSpec{
       assert(extraFields.sameElements(Array(("emp_age", IntegerType))))
       assert(schemaMatch(actualBadRecords, df))
       assert(dataMatch(actualBadRecords, df))
+    }
+
+    it("should return the extra column and all records when many extra columns in all records"){
+      import spark.implicits._
+      val df = Seq[(Integer, String, Integer, String)](
+        (1, "Adam", 10, "Delhi"), (2, "Eve", 12, null), (3, "Bob", null, "Delhi"), (4, "Dan", null, null))
+        .toDF("emp_id", "emp_name", "emp_age", "emp_city")
+      writeData(df)
+
+      val (result, colCountMatch, missingFields, extraFields, actualBadRecords)
+      = SchemaValidation.validate(dataPath)
+
+      assert(!result)
+      assert(!colCountMatch)
+      assert(missingFields.isEmpty)
+      assert(extraFields.sameElements(Array(("emp_age", IntegerType), ("emp_city", StringType))))
+
+      val expectedBadRecords = Seq[(Integer, String, Integer, String)](
+        (1, "Adam", 10, "Delhi"), (2, "Eve", 12, null), (3, "Bob", null, "Delhi"))
+        .toDF("emp_id", "emp_name", "emp_age", "emp_city")
+
+      assert(schemaMatch(actualBadRecords, expectedBadRecords))
+      assert(dataMatch(actualBadRecords, expectedBadRecords))
     }
 
     it("should return the missing column and all records when col name mismatch in all records, aka missing column"){
@@ -259,4 +290,4 @@ class SchemaValidationTest extends FunSpec{
       assertThrows[SparkException](SchemaValidation.validate(dataPath))
     }
   }
-}
+  }

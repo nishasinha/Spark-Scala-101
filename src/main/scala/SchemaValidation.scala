@@ -39,12 +39,11 @@ object SchemaValidation {
 
     if(extraCols.length > 0){
       result = false
-      val extraColName = extraCols(0)._1
-      val extraFieldBadRecords = dataDF.filter(dataDF.col(extraColName).isNotNull).toDF()
-      extraFieldBadRecords.show()
-      writeBadRecords(extraFieldBadRecords)
+      val conditions = extraCols.map(x => dataDF.col(x._1).isNotNull)
+      for(cond <- conditions){
+        writeBadRecords(dataDF.filter(cond))
+      }
     }
-
     // column count match here
     val nullViolatingRecords = dataDF.filter(dataDF.col("emp_id").isNull).toDF()
     writeBadRecords(nullViolatingRecords)
