@@ -1,4 +1,5 @@
-import java.io.File
+import java.io.{File, PrintWriter}
+import java.nio.file.{Files, Paths}
 
 import org.apache.commons.io.FileUtils
 import org.apache.spark.SparkException
@@ -23,7 +24,6 @@ class SchemaValidationTest extends FunSpec with BeforeAndAfterAll{
 
   override def afterAll(): Unit = {
     FileUtils.deleteDirectory(new File(dataPath))
-    FileUtils.deleteDirectory(new File(SchemaValidation.badRecordsPath))
   }
 
   private def schemaMatch(df1:DataFrame, df2:DataFrame): Boolean ={
@@ -55,6 +55,14 @@ class SchemaValidationTest extends FunSpec with BeforeAndAfterAll{
       assert(missingFields.isEmpty)
       assert(extraFields.isEmpty)
       assert(actualBadRecords.collect().isEmpty)
+    }
+
+    it("should throw exception when data file is empty"){
+      FileUtils.deleteDirectory(new File(dataPath))
+      Files.createDirectory(Paths.get(dataPath))
+      val emptyFilePath = s"$dataPath/empty.parquet"
+      Files.createFile(Paths.get(emptyFilePath))
+      assertThrows[SparkException](SchemaValidation.validate(dataPath))
     }
 
     it("should return the missing column and all records when missing column in all records"){

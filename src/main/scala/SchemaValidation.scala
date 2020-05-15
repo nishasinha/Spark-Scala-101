@@ -1,8 +1,5 @@
-import java.io.File
-
-import org.apache.commons.io.FileUtils
 import org.apache.spark.sql
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.types.{DataType, IntegerType, StringType, StructField, StructType}
 
 object SchemaValidation {
@@ -14,18 +11,14 @@ object SchemaValidation {
       )
     )
 
-  val badRecordsPath = "src/test/resources/badRecords"
-
   val spark = SparkSession
     .builder
     .master("local[*]")
     .appName("validate schema")
     .getOrCreate()
 
-  def validate(dataPath: String):
-  (Boolean, Boolean, Array[(String, DataType)], Array[(String, DataType)],sql.DataFrame) = {
-    var result = true
-    FileUtils.deleteDirectory(new File(badRecordsPath))
+  def validate(dataPath: String)
+  :(Boolean, Boolean, Array[(String, DataType)], Array[(String, DataType)],sql.DataFrame) = {
     val dataDF = spark.read.option("mergeSchema", "true").load(dataPath)
     val dataSchema = dataDF.schema
 
@@ -33,24 +26,14 @@ object SchemaValidation {
     val (missingCols, extraCols) = getMissingAndExtraColumnsFromData(dataSchema)
 
     if(missingCols.length > 0){
-      result = false
-      return (result, columnCountMatch, missingCols, extraCols, dataDF)
+      return (false, columnCountMatch, missingCols, extraCols, dataDF)
     }
 
-    if(extraCols.length > 0){
-      result = false
-      val conditions = extraCols.map(x => dataDF.col(x._1).isNotNull)
-      for(cond <- conditions){
-        writeBadRecords(dataDF.filter(cond))
-      }
-    }
-    // column count match here
-    val nullViolatingRecords = dataDF.filter(dataDF.col("emp_id").isNull).toDF()
-    writeBadRecords(nullViolatingRecords)
+    var badRecordsDF = spark.createDataFrame(spark.sparkContext.emptyRDD[Row], dataSchema)
+    badRecordsDF = badRecordsDF.union(getRecordsWithExtraCols(dataDF, extraCols))
+    badRecordsDF = badRecordsDF.union(getRecordsWithNullValuesForNonNullableCols(dataDF))
 
-    result = result && nullViolatingRecords.count() == 0
-    val badRecords = spark.read.option("mergeSchema", "true").load(badRecordsPath)
-    (result, columnCountMatch, missingCols, extraCols, badRecords)
+    (badRecordsDF.count() == 0, columnCountMatch, missingCols, extraCols, badRecordsDF)
   }
 
   private def getMissingAndExtraColumnsFromData(dataSchema: StructType) = {
@@ -62,10 +45,35 @@ object SchemaValidation {
     (missingCols, extraCols)
   }
 
-  private def writeBadRecords(df: sql.DataFrame): Unit ={
-    df
-      .write.format("parquet")
-      .mode("append")
-      .save(badRecordsPath)
+  private def getRecordsWithExtraCols(dataDF:sql.DataFrame,
+                                    extraCols: Array[(String, DataType)])
+  :sql.DataFrame = {
+    var badRecords = spark.createDataFrame(spark.sparkContext.emptyRDD[Row], dataDF.schema)
+    if (extraCols.length > 0) {
+      val conditions = extraCols.map(x => dataDF.col(x._1).isNotNull)
+      for (condition <- conditions) {
+        val extraColDF = dataDF.filter(condition)
+        if (!extraColDF.isEmpty) {
+          badRecords = badRecords.union(extraColDF)
+        }
+      }
+    }
+    badRecords
+  }
+
+  private def getRecordsWithNullValuesForNonNullableCols(dataDF:sql.DataFrame)
+  :sql.DataFrame = {
+    var badRecords = spark.createDataFrame(spark.sparkContext.emptyRDD[Row], dataDF.schema)
+    val nonNullableCols = givenSchema.fields.filter(x=> (!x.nullable))
+    if(nonNullableCols.length > 0){
+      val conditions = nonNullableCols.map(x=> dataDF.col(x.name).isNull)
+      for(condition <- conditions){
+        val badDF = dataDF.filter(condition)
+        if(!badDF.isEmpty){
+          badRecords = badRecords.union(badDF)
+        }
+      }
+    }
+    badRecords
   }
 }
